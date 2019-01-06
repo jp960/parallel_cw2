@@ -42,7 +42,6 @@ void setArray(int dimension, double **one, double **two, FILE * fp) {
 void setThreadArraySections(int *start_i, int *end_i, int dimension, int numProcesses, int self){
     int remainder, rowsToUse, numRows;
 
-    // idk why i started thread ids with 1 not 0
     self +=1;
     numRows = dimension - 2;
     rowsToUse = (int) floor(numRows / numProcesses);
@@ -93,13 +92,11 @@ void sequentialSolver(int dimension, double **currentArray, double **nextArray, 
             writeArray = nextArray;
             count--;
         }
-//        run++;
     }
-//    printf("Sequential runs: %d\n", run);
 }
 
 /* Runs the sequential algorithm on a given array in the args_struct */
-void mpiParallel(int dimension, int rows, int arraySize, double **currentArray, double **nextArray, double precision, int rank, int numProcesses) {
+void parallelSolver(int dimension, int rows, int arraySize, double **currentArray, double **nextArray, double precision, int rank, int numProcesses) {
     double a, b, c, d, av, current, diff;
     int i, j;
     int stop = 0;
@@ -126,7 +123,6 @@ void mpiParallel(int dimension, int rows, int arraySize, double **currentArray, 
                 if (stop == 1 & diff > precision) {
                     stop = 0;
                 }
-//                printf("Stop %d rank %d diff %lf precision %lf\n", stop, rank, diff, precision);
             }
         }
 
@@ -142,14 +138,12 @@ void mpiParallel(int dimension, int rows, int arraySize, double **currentArray, 
             }
             MPI_Bcast(&broadcastStop, 1, MPI_INT, process, MPI_COMM_WORLD);
             if (broadcastStop == 0) {
-                printf("continue rank %d\n", rank);
                 break;
             }
         }
 
         // check stop
         if (broadcastStop == 1) {
-            printf("Stop rank %d\n", rank);
             break;
         }
 
@@ -159,66 +153,38 @@ void mpiParallel(int dimension, int rows, int arraySize, double **currentArray, 
 
         // send above neighbour (rank - 1)
         // check for top process
-        if (rank > 0){
+        if (rank - 1 >= 0){
             MPI_Isend(writeArray[1], dimension, MPI_DOUBLE, rank - 1, 98, MPI_COMM_WORLD, &req[0]);
-//            for (l = 0; l < dimension; l++) {
-//                printf("rank: %d send to: %d index: %d value: %lf\n", rank, rank-1, l, writeArray[1][l]);
-//            }
         }
 
         // send below neighbour (rank + 1)
         // check for bottom
-        if (rank < numProcesses - 1) {
+        if (rank + 1 < numProcesses) {
             MPI_Isend(writeArray[rows], dimension, MPI_DOUBLE, rank + 1, 99, MPI_COMM_WORLD, &req[1]);
-//            for (l = 0; l < dimension; l++) {
-//                printf("rank: %d send to: %d index: %d value: %lf\n", rank, rank+1, l, writeArray[rows][l]);
-//                printf("%lf ", writeArray[arraySize-2][l]);
-//            }
-//            printf("\n");
         }
 
         // receive above neighbour (rank - 1)
         // check for top process
-        if (rank  > 0){
+        if (rank - 1 >= 0){
             MPI_Irecv(writeArray[0], dimension, MPI_DOUBLE, rank - 1, 99, MPI_COMM_WORLD, &req[2]);
         }
 
 
         // receive below neighbour (rank + 1)
         // check for bottom
-        if (rank < numProcesses - 1) {
+        if (rank + 1 < numProcesses) {
             MPI_Irecv(writeArray[rows+1], dimension, MPI_DOUBLE, rank + 1, 98, MPI_COMM_WORLD, &req[3]);
         }
 
         // wait for receive
         if (rank - 1 >= 0) {
             MPI_Wait(&req[2], &recvStat[0]);
-//            for (l = 0; l < dimension; l++) {
-//                printf("rank: %d recv from: %d index: %d value: %lf\n", rank, rank-1, l, writeArray[0][l]);
-//            }
-//            printf("\n");
         }
 
 
         if (rank + 1 < numProcesses) {
             MPI_Wait(&req[3], &recvStat[1]);
-//            for (l = 0; l < dimension; l++) {
-//                printf("rank: %d recv from: %d index: %d value: %lf\n", rank, rank+1, l, writeArray[rows+1][l]);
-//            }
-//            printf("\n");
         }
-
-
-//        printf("After Receive: rank = %d\n", rank);
-//        for(k = 0; k < arraySize; k++) {
-//            for (l = 0; l < dimension; l++) {
-//                printf("%lf ", nextArray[k][l]);
-//            }
-//            printf("\n");
-//        }
-//        MPI_Barrier(MPI_COMM_WORLD);
-//        break;
-
 
         if (count == 0) {
             readArray = nextArray;
@@ -340,8 +306,6 @@ int main(int argc, char *argv[]) {
     int rows = row_end - row_start;
     int arraySize = rows+2;
 
-    printf("rec rank: %d, start: %d, end: %d, arraySize: %d\n", rank, row_start, row_end, arraySize);
-
     double **seqCurrentArray;
     double **seqNextArray;
     double **parCurrentArray;
@@ -408,6 +372,7 @@ int main(int argc, char *argv[]) {
         }
     }
     else {
+        // receive rows
         MPI_Request recvReq[2];
         MPI_Status recvStat[2];
         for(j = 0; j < arraySize; j++) {
@@ -418,16 +383,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // receive rows
-
-//    printf("test rank %d\n", rank);
-//    for(i = 0; i < arraySize; i++){
-//        for(j=0; j<dimension; j++){
-//            printf("%lf ", currentArray[i][j]);
-//        }
-//        printf("\n");
-//    }
-
     // barrier
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -436,20 +391,11 @@ int main(int argc, char *argv[]) {
         beginTime = MPI_Wtime();
     }
 
-//    if (rank == 0) {
-//        currentArray[0][0] = rank;
-//    }
-//    if (rank == 1) {
-//        currentArray[1][0] = rank + 3;
-//    }
-
     if (numProcesses != 1) {
-        mpiParallel(dimension, rows, arraySize, currentArray, nextArray, precision, rank, numProcesses);
+        parallelSolver(dimension, rows, arraySize, currentArray, nextArray, precision, rank, numProcesses);
     }
-    printf("end parallel\n\n");
 
-
-    // end parallel
+    // End parallel
     if (rank == 0) {
         endTime = MPI_Wtime();
     }
@@ -475,8 +421,6 @@ int main(int argc, char *argv[]) {
                 MPI_Wait(&endRecvReq[1], &endRecvStat[1]);
             }
         }
-//        printArray(dimension, parCurrentArray);
-
 
         // read sequential result from file
         double **readSeqCurrentArray;
