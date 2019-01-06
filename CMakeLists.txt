@@ -10,10 +10,7 @@ SET(CMAKE_CXX_COMPILER mpicxx)
 
 add_executable(parallel_cw2 main.c)
 
-#include_directories(/usr/include/mpi/)
 include_directories(${MPI_INCLUDE_PATH})
-
-target_link_libraries(${PROJECT_NAME} pthread)
 
 
 

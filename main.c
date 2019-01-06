@@ -25,7 +25,7 @@ void printArray(int dimension, const double current[dimension][dimension]) {
 
 /* Function that reads in the array of a given size from an open file.
  * Makes a copy of this array to be used as the next array */
-void setArray(int dimension, double one[dimension][dimension], double two[dimension][dimension], FILE * fp) {
+void setArray(int dimension, double **one, double **two, FILE * fp) {
     int i, j;
     char pwd[100];
     for (i = 0; i < dimension; i++){
@@ -62,21 +62,21 @@ void sequentialSolver(int dimension, double currentArray[dimension][dimension], 
     int stop = 0;
     int count = 0;
     int run = 0;
-    double *localOne = &currentArray[0][0];
-    double *localTwo = &nextArray[0][0];
+    double *readArray = &currentArray[0][0];
+    double *writeArray = &nextArray[0][0];
 
     while (stop == 0) {
         stop = 1;
         for (i = 1; i < dimension - 1; i++) {
             for (j = 1; j < dimension - 1; j++) {
-                current = localOne[i * dimension + j];
-                a = *((localOne + (i - 1) * dimension) + j);
-                b = *((localOne + i * dimension) + (j - 1));
-                c = *((localOne + (i + 1) * dimension) + j);
-                d = *((localOne + i * dimension) + (j + 1));
+                current = readArray[i * dimension + j];
+                a = *((readArray + (i - 1) * dimension) + j);
+                b = *((readArray + i * dimension) + (j - 1));
+                c = *((readArray + (i + 1) * dimension) + j);
+                d = *((readArray + i * dimension) + (j + 1));
                 av = average(a, b, c, d);
                 diff = fabs(av - current);
-                localTwo[i * dimension + j] = av;
+                writeArray[i * dimension + j] = av;
                 if (stop == 1 & diff > precision) {
                     stop = 0;
                 }
@@ -84,13 +84,13 @@ void sequentialSolver(int dimension, double currentArray[dimension][dimension], 
         }
         run++;
         if (count == 0) {
-            localOne = &nextArray[0][0];
-            localTwo = &currentArray[0][0];
+            readArray = &nextArray[0][0];
+            writeArray = &currentArray[0][0];
             count++;
         }
         else {
-            localOne = &currentArray[0][0];
-            localTwo = &nextArray[0][0];
+            readArray = &currentArray[0][0];
+            writeArray = &nextArray[0][0];
             count--;
         }
     }
@@ -98,37 +98,30 @@ void sequentialSolver(int dimension, double currentArray[dimension][dimension], 
 }
 
 /* Runs the sequential algorithm on a given array in the args_struct */
-void mpiParallel(int dimension, int start, int end, int arraySize, double currentArray[arraySize][dimension], double nextArray[arraySize][dimension], double precision, int rank, int numProcesses) {
+void mpiParallel(int dimension, int rows, int arraySize, double **currentArray, double **nextArray, double precision, int rank, int numProcesses) {
     double a, b, c, d, av, current, diff;
     int i, j;
     int stop = 0;
     int count = 0;
     int run = 0;
-    double *localOne = &currentArray[0][0];
-    double *localTwo = &nextArray[0][0];
+    double **readArray = currentArray;
+    double **writeArray = nextArray;
 
-//    printf("Before: rank = %d, start = %d, end = %d, arraySize = %d\n", rank, start, end, arraySize);
     int k, l;
-//    for(k = 0; k < arraySize; k++) {
-//        for (l = 0; l < dimension; l++) {
-//            printf("%lf ", nextArray[k][l]);
-//        }
-//        printf("\n");
-//    }
 
 //    while (1) {
     while (run != 1) {
         stop = 1;
         for (i = 1; i < arraySize - 1; i++) {
             for (j = 1; j < dimension - 1; j++) {
-                current = localOne[i * dimension + j];
-                a = *((localOne + (i - 1) * dimension) + j);
-                b = *((localOne + i * dimension) + (j - 1));
-                c = *((localOne + (i + 1) * dimension) + j);
-                d = *((localOne + i * dimension) + (j + 1));
+                current = readArray[i][j];
+                a = readArray[i - 1][j];
+                b = readArray[i][j - 1];
+                c = readArray[i + 1][j];
+                d = readArray[i][j + 1];
                 av = average(a, b, c, d);
                 diff = fabs(av - current);
-                localTwo[i * dimension + j] = av;
+                writeArray[i][j] = av;
                 if (stop == 1 & diff > precision) {
                     stop = 0;
                 }
@@ -166,60 +159,42 @@ void mpiParallel(int dimension, int start, int end, int arraySize, double curren
         // send above neighbour (rank - 1)
         // check for top process
         if (rank - 1 >= 0){
-//            printf("sending up row %d from rank %d to rank-1 %d with tag %d\n", 1, rank, rank-1, 1);
-            MPI_Isend(&localTwo[1], dimension, MPI_DOUBLE, rank - 1, 1, MPI_COMM_WORLD, &req[0]);
-            printf("row send up: from rank %d to rank-1 %d with tag %d\n", rank, rank-1, 1);
+            MPI_Isend(writeArray[1], dimension, MPI_DOUBLE, rank - 1, 98, MPI_COMM_WORLD, &req[0]);
             for (l = 0; l < dimension; l++) {
-                printf("%lf ", localTwo[1*dimension+l]);
+                printf("rank: %d send to: %d index: %d value: %lf\n", rank, rank-1, l, writeArray[1][l]);
             }
-            printf("\n");
         }
 
         // send below neighbour (rank + 1)
         // check for bottom
         if (rank + 1 < numProcesses) {
-//            printf("sending down row %d from rank %d to rank+1 %d with tag %d\n", arraySize - 2 , rank, rank+1, 2);
-            MPI_Isend(&localTwo[arraySize - 2], dimension, MPI_DOUBLE, rank + 1, 2, MPI_COMM_WORLD, &req[1]);
-            printf("row send down: from rank %d to rank-1 %d with tag %d\n", rank, rank+1, 1);
+            MPI_Isend(writeArray[rows], dimension, MPI_DOUBLE, rank + 1, 99, MPI_COMM_WORLD, &req[1]);
             for (l = 0; l < dimension; l++) {
-                printf("%lf ", localTwo[(arraySize-2)*dimension+l]);
+                printf("rank: %d send to: %d index: %d value: %lf\n", rank, rank+1, l, writeArray[rows][l]);
+                printf("%lf ", writeArray[arraySize-2][l]);
             }
             printf("\n");
         }
+//        break;
 
         // receive above neighbour (rank - 1)
         // check for top process
         if (rank - 1 >= 0){
-//            printf("receiving up row %d from rank-1 %d to rank %d with tag %d\n", 0, rank-1, rank, 1);
-            printf("before row receive up: from rank %d to rank-1 %d with tag %d\n", rank, rank-1, 2);
-            for (l = 0; l < dimension; l++) {
-                printf("%lf ", localTwo[0*dimension+l]);
-            }
-            printf("\n");
-            MPI_Irecv(&localTwo[0], dimension, MPI_DOUBLE, rank - 1, 2, MPI_COMM_WORLD, &req[2]);
-//            MPI_Irecv(&arrayTest1[0], dimension, MPI_DOUBLE, rank - 1, 2, MPI_COMM_WORLD, &req[2]);
+            MPI_Irecv(writeArray[0], dimension, MPI_DOUBLE, rank - 1, 99, MPI_COMM_WORLD, &req[2]);
         }
 
 
         // receive below neighbour (rank + 1)
         // check for bottom
         if (rank + 1 < numProcesses) {
-//            printf("receiving down row %d from rank+1 %d to rank %d with tag %d\n", arraySize - 1 , rank+1, rank, 2);
-            printf("before row receive down: from rank %d to rank+1 %d with tag %d\n", rank, rank+1, 1);
-            for (l = 0; l < dimension; l++) {
-                printf("%lf ", localTwo[(arraySize-1)*dimension+l]);
-            }
-            printf("\n");
-            MPI_Irecv(&localTwo[arraySize-1], dimension, MPI_DOUBLE, rank + 1, 1, MPI_COMM_WORLD, &req[3]);
-//            MPI_Irecv(&arrayTest2[0], dimension, MPI_DOUBLE, rank + 1, 1, MPI_COMM_WORLD, &req[3]);
+            MPI_Irecv(writeArray[rows+1], dimension, MPI_DOUBLE, rank + 1, 98, MPI_COMM_WORLD, &req[3]);
         }
 
         // wait for receive
         if (rank - 1 >= 0) {
             MPI_Wait(&req[2], &recvStat[0]);
-            printf("row receive up: from rank %d to rank-1 %d with tag %d\n", rank, rank-1, 2);
             for (l = 0; l < dimension; l++) {
-                printf("%lf ", localTwo[0*dimension+l]);
+                printf("rank: %d recv from: %d index: %d value: %lf\n", rank, rank-1, l, writeArray[0][l]);
             }
             printf("\n");
         }
@@ -227,9 +202,8 @@ void mpiParallel(int dimension, int start, int end, int arraySize, double curren
 
         if (rank + 1 < numProcesses) {
             MPI_Wait(&req[3], &recvStat[1]);
-            printf("row receive down: from rank %d to rank+1 %d with tag %d\n", rank, rank+1, 1);
             for (l = 0; l < dimension; l++) {
-                printf("%lf ", localTwo[(arraySize-1)*dimension+l]);
+                printf("rank: %d recv from: %d index: %d value: %lf\n", rank, rank+1, l, writeArray[rows+1][l]);
             }
             printf("\n");
         }
@@ -247,17 +221,16 @@ void mpiParallel(int dimension, int start, int end, int arraySize, double curren
 
 
         if (count == 0) {
-            localOne = &nextArray[0][0];
-            localTwo = &currentArray[0][0];
+            readArray = nextArray;
+            writeArray = currentArray;
             count++;
         }
         else {
-            localOne = &currentArray[0][0];
-            localTwo = &nextArray[0][0];
+            readArray = currentArray;
+            writeArray = nextArray;
             count--;
         }
         run++;
-//        printf("rank %d run %d\n", rank, run);
     }
 }
 
@@ -356,10 +329,35 @@ int main(int argc, char *argv[]) {
     // Get individual process rank
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
+    int start_i = 0;
+    int end_i = 0;
+    setThreadArraySections(&start_i, &end_i, dimension, numProcesses, rank);
+    int rows = end_i - start_i;
+    int arraySize = rows+2;
+    printf("rec rank: %d, start: %d, end: %d, arraySize: %d\n", rank, start_i, end_i, arraySize);
+    double **parCurrentArray;
+    double **parNextArray;
+    double **currentArray;
+    double **nextArray;
+    // if main process allocate whole array for processing accuracy and precision later
+    // otherwise allocate what you need
+    if (rank == 0) {
+        parCurrentArray = malloc(sizeof(double) * dimension);
+        parNextArray = malloc(sizeof(double) * dimension);
+    }
+    currentArray = malloc(sizeof(double) * (arraySize));
+    nextArray = malloc(sizeof(double) * (arraySize));
+    int j;
+    for(j = 0; j < arraySize; j++) {
+        parCurrentArray[j] = malloc(sizeof(double) * dimension);
+        parNextArray[j] = malloc(sizeof(double) * dimension);
+        currentArray[j] = malloc(sizeof(double) * (dimension));
+        nextArray[j] = malloc(sizeof(double) * (dimension));
+    }
+
+
     char seqFilename[128];
     double beginTime, endTime, time_spent;
-    double parCurrentArray[dimension][dimension];
-    double parNextArray[dimension][dimension];
 
     // rank 0 = master process
     if (rank == 0) {
@@ -374,7 +372,15 @@ int main(int argc, char *argv[]) {
         sprintf(seqFilename, "/home/janhavi/CLionProjects/parallel_cw2/cmake-build-mpi/seqOut_%d.txt", dimension);
         if (numProcesses == 1) {
             FILE * fpRead = fopen("/home/janhavi/CLionProjects/parallel_cw2/cmake-build-mpi/numbers.txt", "r+");
-            setArray(dimension, seqCurrentArray, seqNextArray, fpRead);
+            int i, j;
+            char pwd[100];
+            for (i = 0; i < dimension; i++){
+                for (j = 0; j < dimension; j++) {
+                    fscanf(fpRead, "%lf,", &seqCurrentArray[i][j]);
+                    seqNextArray[i][j] = seqCurrentArray[i][j];
+                }
+            }
+//            setArray(dimension, seqCurrentArray, seqNextArray, fpRead);
             fclose(fpRead);
 
             runSequential(dimension, seqCurrentArray, seqNextArray, precision, seqFilename);
@@ -395,20 +401,12 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    int start_i = 0;
-    int end_i = 0;
-    setThreadArraySections(&start_i, &end_i, dimension, numProcesses, rank);
-    int rows = end_i - start_i;
-    int arraySize = rows+2;
-    printf("rec rank: %d, start: %d, end: %d, arraySize: %d\n", rank, start_i, end_i, arraySize);
-    double currentArray[arraySize][dimension];
-    double nextArray[arraySize][dimension];
-
     // receive rows
-    int j;
     MPI_Request recvReq[2];
     MPI_Status recvStat[2];
     for(j = 0; j < arraySize; j++) {
+        currentArray = malloc(sizeof(double) * (dimension));
+        nextArray = malloc(sizeof(double) * (dimension));
         MPI_Irecv(currentArray[j], dimension, MPI_DOUBLE, 0, start_i, MPI_COMM_WORLD, &recvReq[0]);
         MPI_Irecv(nextArray[j], dimension, MPI_DOUBLE, 0, start_i, MPI_COMM_WORLD, &recvReq[1]);
         MPI_Wait(&recvReq[0], &recvStat[0]);
@@ -424,7 +422,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (numProcesses != 1) {
-        mpiParallel(dimension, start_i, end_i, arraySize, currentArray, nextArray, precision, rank, numProcesses);
+        mpiParallel(dimension, rows, arraySize, currentArray, nextArray, precision, rank, numProcesses);
     }
     printf("end parallel\n\n");
 
@@ -459,31 +457,31 @@ int main(int argc, char *argv[]) {
         }
 
         // read sequential result from file
-        double seqArray1[dimension][dimension];
-        double seqArray2[dimension][dimension];
-        char firstLine[64];
-        char precise[40];
-        FILE * fpReadSeqArray = fopen(seqFilename, "r+");
-        fgets(firstLine, 64, fpReadSeqArray);
-        fgets(precise, 64, fpReadSeqArray);
-        setArray(dimension, seqArray1, seqArray2, fpReadSeqArray);
-        fclose(fpReadSeqArray);
-
-        // Precision and Correctness tests
-        printf("Array size %d by %d\n", dimension, dimension);
-        printf("Sequential run\n");
-        printf("%s", firstLine);
-        printf("%s", precise);
-        printf("Parallel run\n");
-        printf("Number of Threads: %d\n", numProcesses);
-        printf("Time: %lf seconds.\n", time_spent);
-        int count = precisionTest(dimension, seqArray1, parCurrentArray, precision);
-        if (count != 0) {
-            printf("Not precise in %d places\n", count);
-        } else {
-            printf("Precise\n");
-        }
-        correctnessTest(dimension, seqArray1, parCurrentArray);
+//        double seqArray1[dimension][dimension];
+//        double seqArray2[dimension][dimension];
+//        char firstLine[64];
+//        char precise[40];
+//        FILE * fpReadSeqArray = fopen(seqFilename, "r+");
+//        fgets(firstLine, 64, fpReadSeqArray);
+//        fgets(precise, 64, fpReadSeqArray);
+//        setArray(dimension, seqArray1, seqArray2, fpReadSeqArray);
+//        fclose(fpReadSeqArray);
+//
+//        // Precision and Correctness tests
+//        printf("Array size %d by %d\n", dimension, dimension);
+//        printf("Sequential run\n");
+//        printf("%s", firstLine);
+//        printf("%s", precise);
+//        printf("Parallel run\n");
+//        printf("Number of Threads: %d\n", numProcesses);
+//        printf("Time: %lf seconds.\n", time_spent);
+//        int count = precisionTest(dimension, seqArray1, parCurrentArray, precision);
+//        if (count != 0) {
+//            printf("Not precise in %d places\n", count);
+//        } else {
+//            printf("Precise\n");
+//        }
+//        correctnessTest(dimension, seqArray1, parCurrentArray);
     }
 
     MPI_Finalize();
