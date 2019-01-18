@@ -412,7 +412,6 @@ int main(int argc, char *argv[]) {
             }
             // Read numbers into sequential arrays from numbers file (depends on dimension)
             FILE * fpRead = fopen("/home/janhavi/CLionProjects/parallel_cw2/cmake-build-mpi/numbers.txt", "r+");
-            char pwd[100];
             setArray(dimension, seqCurrentArray, seqNextArray, fpRead);
             fclose(fpRead);
 
